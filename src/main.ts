@@ -44,7 +44,6 @@ script.onload = () => {
       paths: [path],
     });
     const handleClick = map.addListener("click", (e) => {
-      console.log("click");
       path.push(e.latlng);
       if (path.length === 1) {
         path.push(e.latlng);
@@ -53,7 +52,6 @@ script.onload = () => {
     });
 
     const handleMove = map.addListener("mousemove", (e) => {
-      console.log("mousemove");
       if (path.length < 1) return;
       const p1 = (e.latlng as naver.maps.LatLng).destinationPoint(135, 5);
       const p2 = (e.latlng as naver.maps.LatLng).destinationPoint(315, 5);
@@ -81,7 +79,6 @@ script.onload = () => {
         coords.push(coords[0]);
         const jPoly = factory.createPolygon(coords);
 
-        // jsts.operation.distance.DistanceOp.nearestPoints(jPoly, jPoint);
         return {
           distance: jsts.operation.distance.DistanceOp.distance(jPoly, jPoint),
           poly: jPoly,
@@ -107,7 +104,6 @@ script.onload = () => {
         poly.setPath(path);
       }
 
-      // jsts.operation.distance.DistanceOp.nearestPoints();
       debugRect.forEach((rect) => rect.setMap(null));
 
       debugRect.push(
@@ -122,7 +118,6 @@ script.onload = () => {
     });
 
     map.addListenerOnce("rightclick", () => {
-      console.log("rightclick");
       naver.maps.Event.removeListener([handleClick, handleMove]);
 
       path.pop();
