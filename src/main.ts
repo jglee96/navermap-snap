@@ -95,8 +95,6 @@ script.onload = () => {
 
       path.pop();
       poly.setPath(path);
-      // @ts-ignore
-      poly.setEditable(true);
       const polygon = naverPolygonToJstsPolygon(poly);
       insertPolygonTree(fieldTree, polygon);
     });
@@ -119,7 +117,6 @@ script.onload = () => {
       strokeWeight: 1,
     });
     const handleClick = map.addListener("click", (e) => {
-      if (!isInside(fieldTree, e.latlng)) return;
       path.push(e.latlng);
       if (path.length === 1) {
         path.push(e.latlng);
@@ -135,6 +132,7 @@ script.onload = () => {
         path.push(new naver.maps.LatLng(snapPoint[1], snapPoint[0]));
         poly.setPath(path);
       } else {
+        if (!isInside(fieldTree, e.latlng)) return;
         path.pop();
         cursor.setCenter(e.latlng);
         path.push(e.latlng);
@@ -148,8 +146,6 @@ script.onload = () => {
 
       path.pop();
       poly.setPath(path);
-      // @ts-ignore
-      poly.setEditable(true);
       const polygon = naverPolygonToJstsPolygon(poly);
       insertPolygonTree(inVacTree, polygon);
     });
@@ -172,7 +168,6 @@ script.onload = () => {
       strokeWeight: 1,
     });
     const handleClick = map.addListener("click", (e) => {
-      if (isInside(fieldTree, e.latlng)) return;
       path.push(e.latlng);
       if (path.length === 1) {
         path.push(e.latlng);
@@ -188,6 +183,7 @@ script.onload = () => {
         path.push(new naver.maps.LatLng(snapPoint[1], snapPoint[0]));
         poly.setPath(path);
       } else {
+        if (isInside(fieldTree, e.latlng)) return;
         path.pop();
         cursor.setCenter(e.latlng);
         path.push(e.latlng);
@@ -201,8 +197,6 @@ script.onload = () => {
 
       path.pop();
       poly.setPath(path);
-      // @ts-ignore
-      poly.setEditable(true);
       const polygon = naverPolygonToJstsPolygon(poly);
       insertPolygonTree(outVacTree, polygon);
     });
