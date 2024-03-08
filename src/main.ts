@@ -1,7 +1,13 @@
 import "./style.css";
 import RBush from "rbush";
 import * as jsts from "jsts";
-import { insertTree, searchSnapPoint } from "./common";
+import {
+  PolygonTreeObject,
+  insertPolygonTree,
+  isInside,
+  naverPolygonToJstsPolygon,
+  searchSnapPoint,
+} from "./common";
 
 const NAVER_MAP_API = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${
   import.meta.env.VITE_OAPI_KEY
@@ -26,9 +32,9 @@ if (script === null) {
 }
 
 script.onload = () => {
-  const fieldTree = new RBush<TreeObject>();
-  const inVacTree = new RBush<TreeObject>();
-  const outVacTree = new RBush<TreeObject>();
+  const fieldTree = new RBush<PolygonTreeObject>();
+  const inVacTree = new RBush<PolygonTreeObject>();
+  const outVacTree = new RBush<PolygonTreeObject>();
 
   const map = new naver.maps.Map("map", {
     zoom: 20,
@@ -70,7 +76,6 @@ script.onload = () => {
 
     const handleMove = map.addListener("mousemove", (e) => {
       const snapPoint = searchSnapPoint(fieldTree, e.latlng);
-
       if (snapPoint !== undefined) {
         path.pop();
         cursor.setCenter(new naver.maps.LatLng(snapPoint[1], snapPoint[0]));
@@ -90,18 +95,10 @@ script.onload = () => {
 
       path.pop();
       poly.setPath(path);
+      // @ts-ignore
       poly.setEditable(true);
-      const coords = poly.getPath() as naver.maps.KVOArrayOfCoords;
-      coords.forEach((coord, idx) => {
-        const p1 = coord as naver.maps.LatLng;
-        const p2 = (
-          idx !== coords.getLength() - 1
-            ? coords.getAt(idx + 1)
-            : coords.getAt(0)
-        ) as naver.maps.LatLng;
-
-        insertTree(fieldTree, p1, p2);
-      });
+      const polygon = naverPolygonToJstsPolygon(poly);
+      insertPolygonTree(fieldTree, polygon);
     });
   };
 
@@ -122,6 +119,7 @@ script.onload = () => {
       strokeWeight: 1,
     });
     const handleClick = map.addListener("click", (e) => {
+      if (!isInside(fieldTree, e.latlng)) return;
       path.push(e.latlng);
       if (path.length === 1) {
         path.push(e.latlng);
@@ -150,18 +148,63 @@ script.onload = () => {
 
       path.pop();
       poly.setPath(path);
+      // @ts-ignore
       poly.setEditable(true);
-      const coords = poly.getPath() as naver.maps.KVOArrayOfCoords;
-      coords.forEach((coord, idx) => {
-        const p1 = coord as naver.maps.LatLng;
-        const p2 = (
-          idx !== coords.getLength() - 1
-            ? coords.getAt(idx + 1)
-            : coords.getAt(0)
-        ) as naver.maps.LatLng;
+      const polygon = naverPolygonToJstsPolygon(poly);
+      insertPolygonTree(inVacTree, polygon);
+    });
+  };
 
-        insertTree(inVacTree, p1, p2);
-      });
+  outVacBtn.onclick = () => {
+    const path: naver.maps.LatLng[] = [];
+    const cursor = new naver.maps.Circle({
+      map,
+      center: [0, 0],
+      radius: 1,
+      fillColor: "purple",
+    });
+    const poly = new naver.maps.Polygon({
+      map,
+      paths: [path],
+      fillColor: "#00A15E",
+      fillOpacity: 0.3,
+      strokeColor: "#00A15E",
+      strokeWeight: 1,
+    });
+    const handleClick = map.addListener("click", (e) => {
+      if (isInside(fieldTree, e.latlng)) return;
+      path.push(e.latlng);
+      if (path.length === 1) {
+        path.push(e.latlng);
+      }
+      poly.setPath(path);
+    });
+
+    const handleMove = map.addListener("mousemove", (e) => {
+      const snapPoint = searchSnapPoint(fieldTree, e.latlng);
+      if (snapPoint !== undefined) {
+        path.pop();
+        cursor.setCenter(new naver.maps.LatLng(snapPoint[1], snapPoint[0]));
+        path.push(new naver.maps.LatLng(snapPoint[1], snapPoint[0]));
+        poly.setPath(path);
+      } else {
+        path.pop();
+        cursor.setCenter(e.latlng);
+        path.push(e.latlng);
+        poly.setPath(path);
+      }
+    });
+
+    map.addListenerOnce("rightclick", () => {
+      naver.maps.Event.removeListener([handleClick, handleMove]);
+      cursor.setMap(null);
+
+      path.pop();
+      poly.setPath(path);
+      // @ts-ignore
+      poly.setEditable(true);
+      const polygon = naverPolygonToJstsPolygon(poly);
+      insertPolygonTree(outVacTree, polygon);
     });
   };
 
