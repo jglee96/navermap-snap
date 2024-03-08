@@ -29,8 +29,8 @@ export const isInside = (
   tree: RBush<PolygonTreeObject>,
   latlng: naver.maps.LatLng
 ) => {
-  const p1 = latlng.destinationPoint(135, 10);
-  const p2 = latlng.destinationPoint(315, 10);
+  const p1 = latlng.destinationPoint(135, 2);
+  const p2 = latlng.destinationPoint(315, 2);
 
   const t1 = proj4(PROJ_LL, PROJ_TM, [p1.x, p1.y]);
   const t2 = proj4(PROJ_LL, PROJ_TM, [p2.x, p2.y]);
