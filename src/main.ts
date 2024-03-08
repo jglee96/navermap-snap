@@ -1,17 +1,18 @@
 import "./style.css";
 import RBush from "rbush";
 import * as jsts from "jsts";
+import { insertTree, searchSnapPoint } from "./common";
 
 const NAVER_MAP_API = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${
   import.meta.env.VITE_OAPI_KEY
 }&submodules=geocoder,drawing`;
 
-type TreeObject = {
+export type TreeObject = {
   minX: number;
   minY: number;
   maxX: number;
   maxY: number;
-  value: naver.maps.Polygon;
+  value: jsts.geom.LineString;
 };
 
 let script: HTMLScriptElement | null = document.querySelector(
@@ -25,23 +26,39 @@ if (script === null) {
 }
 
 script.onload = () => {
-  const tree = new RBush<TreeObject>();
+  const fieldTree = new RBush<TreeObject>();
+  const inVacTree = new RBush<TreeObject>();
+  const outVacTree = new RBush<TreeObject>();
+
   const map = new naver.maps.Map("map", {
     zoom: 20,
   });
 
   const mapDiv = map.getElement();
 
-  const addPolyBtn = document.createElement("button");
-  addPolyBtn.innerText = "Add Polygon";
+  const addFieldBtn = document.createElement("button");
+  addFieldBtn.innerText = "Add Field Polygon";
+  const inVacBtn = document.createElement("button");
+  inVacBtn.innerText = "Add Inside Vacancy Polygon";
+  const outVacBtn = document.createElement("button");
+  outVacBtn.innerText = "Add Outside Vacancy Polygon";
 
-  const debugRect: naver.maps.Rectangle[] = [];
-  const factory = new jsts.geom.GeometryFactory();
-  addPolyBtn.onclick = () => {
+  addFieldBtn.onclick = () => {
     const path: naver.maps.LatLng[] = [];
+    const cursor = new naver.maps.Circle({
+      map,
+      center: [0, 0],
+      radius: 1,
+      fillColor: "purple",
+    });
     const poly = new naver.maps.Polygon({
       map,
       paths: [path],
+      fillColor: "rgb(255, 51, 51)",
+      fillOpacity: 0.4,
+      strokeColor: "#FF3333",
+      strokeWeight: 3,
+      strokeStyle: "shortdashdotdot",
     });
     const handleClick = map.addListener("click", (e) => {
       path.push(e.latlng);
@@ -52,86 +69,103 @@ script.onload = () => {
     });
 
     const handleMove = map.addListener("mousemove", (e) => {
-      if (path.length < 1) return;
-      const p1 = (e.latlng as naver.maps.LatLng).destinationPoint(135, 5);
-      const p2 = (e.latlng as naver.maps.LatLng).destinationPoint(315, 5);
-      const bounds = new naver.maps.LatLngBounds(p1, p2);
-      const result = tree.search({
-        minX: bounds.minX(),
-        minY: bounds.minY(),
-        maxX: bounds.maxX(),
-        maxY: bounds.maxY(),
-      });
-      const jPoint = factory.createPoint(
-        new jsts.geom.Coordinate(e.latlng.x, e.latlng.y)
-      );
+      const snapPoint = searchSnapPoint(fieldTree, e.latlng);
 
-      const comp = result.map((item: TreeObject) => {
-        const coords = (item.value.getPath() as naver.maps.KVOArrayOfCoords)
-          .getArray()
-          .reduce(
-            (acc: jsts.geom.Coordinate[], cur) => [
-              ...acc,
-              new jsts.geom.Coordinate(cur.x, cur.y),
-            ],
-            []
-          );
-        coords.push(coords[0]);
-        const jPoly = factory.createPolygon(coords);
-
-        return {
-          distance: jsts.operation.distance.DistanceOp.distance(jPoly, jPoint),
-          poly: jPoly,
-        };
-      });
-      if (comp.length > 0) {
-        comp.sort((a, b) => a.distance - b.distance);
-        const [p1, p2] = jsts.operation.distance.DistanceOp.nearestPoints(
-          comp[0].poly,
-          jPoint
-        );
-        const snapPoint =
-          p1.compareTo(new jsts.geom.Coordinate(e.latlng.x, e.latlng.y)) === 0
-            ? p2
-            : p1;
-
+      if (snapPoint !== undefined) {
         path.pop();
-        path.push(new naver.maps.LatLng(snapPoint.y, snapPoint.x));
+        cursor.setCenter(new naver.maps.LatLng(snapPoint[1], snapPoint[0]));
+        path.push(new naver.maps.LatLng(snapPoint[1], snapPoint[0]));
         poly.setPath(path);
       } else {
         path.pop();
+        cursor.setCenter(e.latlng);
         path.push(e.latlng);
         poly.setPath(path);
       }
-
-      debugRect.forEach((rect) => rect.setMap(null));
-
-      debugRect.push(
-        ...result.map(
-          (item: TreeObject) =>
-            new naver.maps.Rectangle({
-              map,
-              bounds: item.value.getBounds(),
-            })
-        )
-      );
     });
 
     map.addListenerOnce("rightclick", () => {
       naver.maps.Event.removeListener([handleClick, handleMove]);
+      cursor.setMap(null);
 
       path.pop();
       poly.setPath(path);
-      const bounds = poly.getBounds() as naver.maps.LatLngBounds;
-      const item = {
-        minX: bounds.minX(),
-        minY: bounds.minY(),
-        maxX: bounds.maxX(),
-        maxY: bounds.maxY(),
-        value: poly,
-      };
-      tree.insert(item);
+      poly.setEditable(true);
+      const coords = poly.getPath() as naver.maps.KVOArrayOfCoords;
+      coords.forEach((coord, idx) => {
+        const p1 = coord as naver.maps.LatLng;
+        const p2 = (
+          idx !== coords.getLength() - 1
+            ? coords.getAt(idx + 1)
+            : coords.getAt(0)
+        ) as naver.maps.LatLng;
+
+        insertTree(fieldTree, p1, p2);
+      });
     });
   };
-  document.body.insertBefore(addPolyBtn, mapDiv);
+
+  inVacBtn.onclick = () => {
+    const path: naver.maps.LatLng[] = [];
+    const cursor = new naver.maps.Circle({
+      map,
+      center: [0, 0],
+      radius: 1,
+      fillColor: "purple",
+    });
+    const poly = new naver.maps.Polygon({
+      map,
+      paths: [path],
+      fillColor: "rgb(136, 0, 200)",
+      fillOpacity: 0.2,
+      strokeColor: "#8800C8",
+      strokeWeight: 1,
+    });
+    const handleClick = map.addListener("click", (e) => {
+      path.push(e.latlng);
+      if (path.length === 1) {
+        path.push(e.latlng);
+      }
+      poly.setPath(path);
+    });
+
+    const handleMove = map.addListener("mousemove", (e) => {
+      const snapPoint = searchSnapPoint(fieldTree, e.latlng);
+      if (snapPoint !== undefined) {
+        path.pop();
+        cursor.setCenter(new naver.maps.LatLng(snapPoint[1], snapPoint[0]));
+        path.push(new naver.maps.LatLng(snapPoint[1], snapPoint[0]));
+        poly.setPath(path);
+      } else {
+        path.pop();
+        cursor.setCenter(e.latlng);
+        path.push(e.latlng);
+        poly.setPath(path);
+      }
+    });
+
+    map.addListenerOnce("rightclick", () => {
+      naver.maps.Event.removeListener([handleClick, handleMove]);
+      cursor.setMap(null);
+
+      path.pop();
+      poly.setPath(path);
+      poly.setEditable(true);
+      const coords = poly.getPath() as naver.maps.KVOArrayOfCoords;
+      coords.forEach((coord, idx) => {
+        const p1 = coord as naver.maps.LatLng;
+        const p2 = (
+          idx !== coords.getLength() - 1
+            ? coords.getAt(idx + 1)
+            : coords.getAt(0)
+        ) as naver.maps.LatLng;
+
+        insertTree(inVacTree, p1, p2);
+      });
+    });
+  };
+
+  document.body.insertBefore(addFieldBtn, mapDiv);
+  document.body.insertBefore(inVacBtn, mapDiv);
+  document.body.insertBefore(outVacBtn, mapDiv);
 };

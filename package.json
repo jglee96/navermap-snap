@@ -11,12 +11,14 @@
   "devDependencies": {
     "@types/jsts": "^0.17.22",
     "@types/navermaps": "^3.7.4",
+    "@types/proj4": "^2.5.5",
     "@types/rbush": "^3.0.3",
     "typescript": "^5.2.2",
     "vite": "^5.1.4"
   },
   "dependencies": {
     "jsts": "^2.7.2",
+    "proj4": "^2.10.0",
     "rbush": "^3.0.1"
   }
 }
