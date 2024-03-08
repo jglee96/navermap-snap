@@ -25,7 +25,6 @@ export type LineTreeObject = {
 const bufferSize = 2;
 
 const factory = new jsts.geom.GeometryFactory();
-const writer = new jsts.io.WKTWriter();
 
 export const isInside = (
   tree: RBush<PolygonTreeObject>,
