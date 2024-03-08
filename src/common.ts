@@ -22,6 +22,8 @@ export type LineTreeObject = {
   value: jsts.geom.LineString;
 };
 
+const bufferSize = 2;
+
 const factory = new jsts.geom.GeometryFactory();
 const writer = new jsts.io.WKTWriter();
 
@@ -29,8 +31,8 @@ export const isInside = (
   tree: RBush<PolygonTreeObject>,
   latlng: naver.maps.LatLng
 ) => {
-  const p1 = latlng.destinationPoint(135, 2);
-  const p2 = latlng.destinationPoint(315, 2);
+  const p1 = latlng.destinationPoint(135, bufferSize);
+  const p2 = latlng.destinationPoint(315, bufferSize);
 
   const t1 = proj4(PROJ_LL, PROJ_TM, [p1.x, p1.y]);
   const t2 = proj4(PROJ_LL, PROJ_TM, [p2.x, p2.y]);
@@ -56,7 +58,6 @@ export const insertPolygonTree = (
   polygon: jsts.geom.Polygon
 ) => {
   const env = polygon.getEnvelopeInternal();
-  console.log(env);
 
   const item = {
     minX: env.getMinX(),
@@ -82,7 +83,7 @@ export const insertLineTree = (
   ]);
 
   const env = lineStr
-    .buffer(2, 2, jsts.operation.buffer.BufferParameters.CAP_FLAT)
+    .buffer(bufferSize, 2, jsts.operation.buffer.BufferParameters.CAP_FLAT)
     .getEnvelopeInternal();
 
   const item = {
@@ -99,8 +100,8 @@ export const searchSnapPoint = (
   tree: RBush<PolygonTreeObject>,
   latlng: naver.maps.LatLng
 ): undefined | number[] => {
-  const p1 = latlng.destinationPoint(135, 10);
-  const p2 = latlng.destinationPoint(315, 10);
+  const p1 = latlng.destinationPoint(135, bufferSize);
+  const p2 = latlng.destinationPoint(315, bufferSize);
 
   const t1 = proj4(PROJ_LL, PROJ_TM, [p1.x, p1.y]);
   const t2 = proj4(PROJ_LL, PROJ_TM, [p2.x, p2.y]);
@@ -134,7 +135,7 @@ export const searchSnapPoint = (
       coord,
       exteriorCoordinates[index + 1],
     ]);
-    const env = lineStr.buffer(2).getEnvelopeInternal();
+    const env = lineStr.buffer(bufferSize).getEnvelopeInternal();
 
     lineTree.insert({
       minX: env.getMinX(),
@@ -155,14 +156,31 @@ export const searchSnapPoint = (
   lineComp.sort((a, b) => a.distance - b.distance);
 
   const nearestLine = lineComp[0].poly;
-
-  const [c1, c2] = jsts.operation.distance.DistanceOp.nearestPoints(
-    nearestLine,
+  const dist0 = jsts.operation.distance.DistanceOp.distance(
+    nearestLine.getStartPoint(),
     point
   );
-  const snapPoint =
-    c1.compareTo(new jsts.geom.Coordinate(latlng.x, latlng.y)) === 0 ? c2 : c1;
+  const dist1 = jsts.operation.distance.DistanceOp.distance(
+    nearestLine.getEndPoint(),
+    point
+  );
 
+  let snapPoint: jsts.geom.Coordinate;
+  if (dist0 < 2 * bufferSize || dist1 < 2 * bufferSize) {
+    snapPoint =
+      dist0 <= dist1
+        ? nearestLine.getStartPoint().getCoordinate()
+        : nearestLine.getEndPoint().getCoordinate();
+  } else {
+    const [c1, c2] = jsts.operation.distance.DistanceOp.nearestPoints(
+      nearestLine,
+      point
+    );
+    snapPoint =
+      c1.compareTo(new jsts.geom.Coordinate(latlng.x, latlng.y)) === 0
+        ? c2
+        : c1;
+  }
   return proj4(PROJ_TM, PROJ_LL, [snapPoint.x, snapPoint.y]);
 };
 
