@@ -2,36 +2,43 @@ import RBush from "rbush";
 import proj4 from "proj4";
 import * as jsts from "jsts";
 
+export type TreeItem<T extends jsts.geom.Geometry> = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  id: T extends jsts.geom.Polygon ? string : undefined;
+  geom: T;
+};
+
 const PROJ_LL = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs";
 const PROJ_TM =
   "+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs";
 
-export type PolygonTreeObject = {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-  value: jsts.geom.Polygon;
-};
-
-export type LineTreeObject = {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-  value: jsts.geom.LineString;
-};
-
-const bufferSize = 2;
-
 const factory = new jsts.geom.GeometryFactory();
 
-export const isInside = (
-  tree: RBush<PolygonTreeObject>,
+export const naverPolygonToGeom = (polygon: naver.maps.Polygon) => {
+  const coords = (polygon.getPath() as naver.maps.KVOArrayOfCoords)
+    .getArray()
+    .map((coord) => proj4(PROJ_LL, PROJ_TM, [coord.x, coord.y]))
+    .reduce(
+      (acc: jsts.geom.Coordinate[], cur) => [
+        ...acc,
+        new jsts.geom.Coordinate(cur[0], cur[1]),
+      ],
+      []
+    );
+  coords.push(coords[0]);
+
+  return factory.createPolygon(coords);
+};
+
+export const checkInside = (
+  tree: RBush<TreeItem<jsts.geom.Polygon>>,
   latlng: naver.maps.LatLng
 ) => {
-  const p1 = latlng.destinationPoint(135, bufferSize);
-  const p2 = latlng.destinationPoint(315, bufferSize);
+  const p1 = latlng.destinationPoint(135, 2);
+  const p2 = latlng.destinationPoint(315, 2);
 
   const t1 = proj4(PROJ_LL, PROJ_TM, [p1.x, p1.y]);
   const t2 = proj4(PROJ_LL, PROJ_TM, [p2.x, p2.y]);
@@ -49,56 +56,69 @@ export const isInside = (
   const p = proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
   const point = factory.createPoint(new jsts.geom.Coordinate(p[0], p[1]));
 
-  return result.filter((item) => item.value.covers(point)).length > 0;
+  return result.some((item) => item.geom.covers(point));
 };
 
-export const insertPolygonTree = (
-  tree: RBush<PolygonTreeObject>,
-  polygon: jsts.geom.Polygon
+export const insert = (
+  tree: RBush<TreeItem<jsts.geom.Polygon>>,
+  polygon: naver.maps.Polygon
 ) => {
-  const env = polygon.getEnvelopeInternal();
+  const geom = naverPolygonToGeom(polygon);
+  const env = geom.getEnvelopeInternal();
 
-  const item = {
+  const item: TreeItem<jsts.geom.Polygon> = {
     minX: env.getMinX(),
     minY: env.getMinY(),
     maxX: env.getMaxX(),
     maxY: env.getMaxY(),
-    value: polygon,
+    // @ts-ignore
+    id: polygon.id,
+    geom,
   };
   tree.insert(item);
 };
 
-export const insertLineTree = (
-  tree: RBush<LineTreeObject>,
-  p1: naver.maps.LatLng,
-  p2: naver.maps.LatLng
+export const remove = (
+  tree: RBush<TreeItem<jsts.geom.Polygon>>,
+  id: string
 ) => {
-  const t1 = proj4(PROJ_LL, PROJ_TM, [p1.x, p1.y]);
-  const t2 = proj4(PROJ_LL, PROJ_TM, [p2.x, p2.y]);
+  const item: TreeItem<jsts.geom.Polygon> = {
+    minX: 0,
+    minY: 0,
+    maxX: 0,
+    maxY: 0,
+    id,
+    geom: factory.createPolygon(),
+  };
 
-  const lineStr = factory.createLineString([
-    new jsts.geom.Coordinate(t1[0], t1[1]),
-    new jsts.geom.Coordinate(t2[0], t2[1]),
-  ]);
+  tree.remove(item, (a, b) => a.id === b.id);
+};
 
-  const env = lineStr
-    .buffer(bufferSize, 2, jsts.operation.buffer.BufferParameters.CAP_FLAT)
-    .getEnvelopeInternal();
+export const update = (
+  tree: RBush<TreeItem<jsts.geom.Polygon>>,
+  polygon: naver.maps.Polygon
+) => {
+  const geom = naverPolygonToGeom(polygon);
+  const env = geom.getEnvelopeInternal();
 
-  const item = {
+  const item: TreeItem<jsts.geom.Polygon> = {
     minX: env.getMinX(),
     minY: env.getMinY(),
     maxX: env.getMaxX(),
     maxY: env.getMaxY(),
-    value: lineStr,
+    // @ts-ignore
+    id: polygon.id,
+    geom,
   };
+  tree.remove(item, (a, b) => a.id === b.id);
   tree.insert(item);
 };
 
 export const searchSnapPoint = (
-  tree: RBush<PolygonTreeObject>,
+  tree: RBush<TreeItem<jsts.geom.Polygon>>,
   latlng: naver.maps.LatLng
 ): undefined | number[] => {
+  const bufferSize = 2;
   const p1 = latlng.destinationPoint(135, bufferSize);
   const p2 = latlng.destinationPoint(315, bufferSize);
 
@@ -119,82 +139,19 @@ export const searchSnapPoint = (
   const point = factory.createPoint(new jsts.geom.Coordinate(p[0], p[1]));
 
   const comp = result.map((item) => ({
-    distance: jsts.operation.distance.DistanceOp.distance(item.value, point),
-    poly: item.value,
+    distance: jsts.operation.distance.DistanceOp.distance(item.geom, point),
+    poly: item.geom,
   }));
 
   comp.sort((a, b) => a.distance - b.distance);
-
-  const lineTree = new RBush<LineTreeObject>();
   const nearestPolygon = comp[0].poly;
-  const exteriorCoordinates = nearestPolygon.getExteriorRing().getCoordinates();
-  exteriorCoordinates.forEach((coord, index) => {
-    if (index === exteriorCoordinates.length - 1) return;
-    const lineStr = factory.createLineString([
-      coord,
-      exteriorCoordinates[index + 1],
-    ]);
-    const env = lineStr.buffer(bufferSize).getEnvelopeInternal();
 
-    lineTree.insert({
-      minX: env.getMinX(),
-      minY: env.getMinY(),
-      maxX: env.getMaxX(),
-      maxY: env.getMaxY(),
-      value: lineStr,
-    });
-  });
-
-  const lineResult = lineTree.search(searchObject);
-  if (lineResult.length === 0) return undefined;
-
-  const lineComp = lineResult.map((item) => ({
-    distance: jsts.operation.distance.DistanceOp.distance(item.value, point),
-    poly: item.value,
-  }));
-  lineComp.sort((a, b) => a.distance - b.distance);
-
-  const nearestLine = lineComp[0].poly;
-  const dist0 = jsts.operation.distance.DistanceOp.distance(
-    nearestLine.getStartPoint(),
-    point
-  );
-  const dist1 = jsts.operation.distance.DistanceOp.distance(
-    nearestLine.getEndPoint(),
-    point
+  // @ts-ignore
+  const snapGeom = jsts.operation.overlay.snap.GeometrySnapper.snap(
+    point,
+    nearestPolygon,
+    2
   );
 
-  let snapPoint: jsts.geom.Coordinate;
-  if (dist0 < 2 * bufferSize || dist1 < 2 * bufferSize) {
-    snapPoint =
-      dist0 <= dist1
-        ? nearestLine.getStartPoint().getCoordinate()
-        : nearestLine.getEndPoint().getCoordinate();
-  } else {
-    const [c1, c2] = jsts.operation.distance.DistanceOp.nearestPoints(
-      nearestLine,
-      point
-    );
-    snapPoint =
-      c1.compareTo(new jsts.geom.Coordinate(latlng.x, latlng.y)) === 0
-        ? c2
-        : c1;
-  }
-  return proj4(PROJ_TM, PROJ_LL, [snapPoint.x, snapPoint.y]);
-};
-
-export const naverPolygonToJstsPolygon = (polygon: naver.maps.Polygon) => {
-  const coords = (polygon.getPath() as naver.maps.KVOArrayOfCoords)
-    .getArray()
-    .map((coord) => proj4(PROJ_LL, PROJ_TM, [coord.x, coord.y]))
-    .reduce(
-      (acc: jsts.geom.Coordinate[], cur) => [
-        ...acc,
-        new jsts.geom.Coordinate(cur[0], cur[1]),
-      ],
-      []
-    );
-  coords.push(coords[0]);
-
-  return factory.createPolygon(coords);
+  return proj4(PROJ_TM, PROJ_LL, [snapGeom[0].getX(), snapGeom[0].getY()]);
 };

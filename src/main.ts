@@ -1,5 +1,6 @@
 import "./style.css";
 import * as shape from "./shape";
+import { treeStore } from "./store";
 
 const NAVER_MAP_API = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${
   import.meta.env.VITE_OAPI_KEY
@@ -16,48 +17,67 @@ if (script === null) {
 }
 
 script.onload = () => {
-  const map = new naver.maps.Map("map", {
-    zoom: 20,
-  });
-
-  const mapDiv = map.getElement();
-
-  const addFieldBtn = document.createElement("button");
-  addFieldBtn.innerText = "Add Field Polygon";
-  const inVacBtn = document.createElement("button");
-  inVacBtn.innerText = "Add Inside Vacancy Polygon";
-  const outVacBtn = document.createElement("button");
-  outVacBtn.innerText = "Add Outside Vacancy Polygon";
-
-  addFieldBtn.onclick = () => {
-    new shape.Polygon(map, {
-      fillColor: "rgb(255, 51, 51)",
-      fillOpacity: 0.4,
-      strokeColor: "#FF3333",
-      strokeWeight: 3,
-      strokeStyle: "shortdashdotdot",
+  naver.maps.onJSContentLoaded = () => {
+    const map = new naver.maps.Map("map", {
+      zoom: 20,
     });
-  };
+    const dm = new naver.maps.drawing.DrawingManager({ map });
 
-  inVacBtn.onclick = () => {
-    new shape.InPolygon(map, {
-      fillColor: "rgb(136, 0, 200)",
-      fillOpacity: 0.2,
-      strokeColor: "#8800C8",
-      strokeWeight: 1,
-    });
-  };
+    const mapDiv = map.getElement();
 
-  outVacBtn.onclick = () => {
-    new shape.OutPolygon(map, {
-      fillColor: "#00A15E",
-      fillOpacity: 0.3,
-      strokeColor: "#00A15E",
-      strokeWeight: 1,
-    });
-  };
+    const addFieldBtn = document.createElement("button");
+    addFieldBtn.innerText = "Add Field Polygon";
+    const inVacBtn = document.createElement("button");
+    inVacBtn.innerText = "Add Inside Vacancy Polygon";
+    const outVacBtn = document.createElement("button");
+    outVacBtn.innerText = "Add Outside Vacancy Polygon";
 
-  document.body.insertBefore(addFieldBtn, mapDiv);
-  document.body.insertBefore(inVacBtn, mapDiv);
-  document.body.insertBefore(outVacBtn, mapDiv);
+    addFieldBtn.onclick = () => {
+      shape.createPolygon({
+        dm,
+        options: {
+          fillColor: "rgb(255, 51, 51)",
+          fillOpacity: 0.4,
+          strokeColor: "#FF3333",
+          strokeWeight: 3,
+          strokeStyle: "shortdashdotdot",
+        },
+        tree: treeStore.getState().tree,
+      });
+    };
+
+    inVacBtn.onclick = () => {
+      shape.createSnapPolygon({
+        dm,
+        options: {
+          fillColor: "rgb(255, 51, 51)",
+          fillOpacity: 0.4,
+          strokeColor: "#FF3333",
+          strokeWeight: 3,
+          strokeStyle: "shortdashdotdot",
+        },
+        tree: treeStore.getState().tree,
+        type: "in",
+      });
+    };
+
+    outVacBtn.onclick = () => {
+      shape.createSnapPolygon({
+        dm,
+        options: {
+          fillColor: "rgb(255, 51, 51)",
+          fillOpacity: 0.4,
+          strokeColor: "#FF3333",
+          strokeWeight: 3,
+          strokeStyle: "shortdashdotdot",
+        },
+        tree: treeStore.getState().tree,
+        type: "out",
+      });
+    };
+
+    document.body.insertBefore(addFieldBtn, mapDiv);
+    document.body.insertBefore(inVacBtn, mapDiv);
+    document.body.insertBefore(outVacBtn, mapDiv);
+  };
 };

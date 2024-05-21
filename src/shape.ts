@@ -1,119 +1,136 @@
-import {
-  insertPolygonTree,
-  isInside,
-  naverPolygonToJstsPolygon,
-  searchSnapPoint,
-} from "./common";
-import { treeStore } from "./store";
+import RBush from "rbush";
+import * as jsts from "jsts";
+import { TreeItem, checkInside, insert, searchSnapPoint } from "./common";
 
-export class Polygon {
-  map: naver.maps.Map;
-  path: naver.maps.LatLng[];
-  poly: naver.maps.Polygon;
-  eventListeners: naver.maps.MapEventListener[];
+export const createSnapPolygon = ({
+  dm,
+  options,
+  tree,
+  type,
+}: {
+  dm: naver.maps.drawing.DrawingManager;
+  options: Partial<naver.maps.PolygonOptions>;
+  tree: RBush<TreeItem<jsts.geom.Polygon>>;
+  type: "in" | "out";
+}) => {
+  // @ts-ignore
+  const originCreateOverlay = dm._drawingTool._createOverlay;
+  // @ts-ignore
+  dm._drawingTool._createOverlay = (t: any, e: any) => {
+    const isInside = checkInside(tree, e);
+    let fp = e;
 
-  constructor(
-    map: naver.maps.Map,
-    options: Omit<naver.maps.PolygonOptions, "map" | "paths">
-  ) {
-    this.map = map;
-    this.path = [];
-    this.poly = new naver.maps.Polygon({
-      map,
-      paths: [this.path],
+    const polygon = new naver.maps.Polygon({
+      map: dm.getMap()!,
+      paths: [[fp, fp]],
       ...options,
     });
-    this.eventListeners = [];
-    this.eventListeners.push(this.addHandleClick(), this.addHandleMove());
-    this.final();
-  }
 
-  clear() {
-    naver.maps.Event.removeListener(this.eventListeners);
-  }
+    // @ts-ignore
+    polygon.updateLastPath = function (e: any) {
+      const isInside = checkInside(tree, e);
+      if ((type === "in" && !isInside) || (type === "out" && isInside)) return;
 
-  addTree() {
-    const fieldTree = treeStore.getState().field;
-    const polygon = naverPolygonToJstsPolygon(this.poly);
-    insertPolygonTree(fieldTree, polygon);
-  }
+      const snapPoint = searchSnapPoint(tree, e);
 
-  addHandleClick() {
-    return this.map.addListener("click", (e) => {
-      this.path.push(e.latlng);
-      if (this.path.length === 1) {
-        this.path.push(e.latlng);
+      const mp = snapPoint
+        ? new naver.maps.LatLng(snapPoint[1], snapPoint[0])
+        : e;
+
+      const t = this.getPath();
+      t.pop();
+      t.push(mp);
+    };
+
+    // @ts-ignore
+    polygon.addPath = function (e) {
+      const isInside = checkInside(tree, e);
+      /**
+       * 내외부 조건이 맞지 않는 상태에서 클릭시
+       * 마지막 점을 path로 적용하는 로직
+       * path는 kvo array이기 때문에 t[t.length - 1]로 마지막 element를 접근할 수 없음
+       * 따라서 pop으로 마지막 element 꺼내고
+       * 첫번째 push로 고정된 point 적용
+       * 두번째 push로 move하면서 변경될 point 적용
+       */
+      if ((type === "in" && !isInside) || (type === "out" && isInside)) {
+        const t = this.getPath();
+        const last = t.pop() as naver.maps.LatLng | undefined;
+        if (last === undefined) return;
+        t.push(last.clone());
+        t.push(last.clone());
+        return;
       }
-      this.poly.setPath(this.path);
-    });
-  }
 
-  addHandleMove() {
-    return this.map.addListener("mousemove", (e) => {
-      const fieldTree = treeStore.getState().field;
-      const snapPoint = searchSnapPoint(fieldTree, e.latlng);
+      const snapPoint = searchSnapPoint(tree, e);
 
       const mp = snapPoint
         ? new naver.maps.LatLng(snapPoint[1], snapPoint[0])
-        : e.latlng;
-      this.path.pop();
-      this.path.push(mp);
-      this.poly.setPath(this.path);
-    });
-  }
+        : e;
 
-  final() {
-    this.map.addListenerOnce("rightclick", () => {
-      this.clear();
-      this.path.pop();
-      this.poly.setPath(this.path);
-      this.addTree();
-    });
-  }
-}
+      const t = this.getPath();
+      t.push(mp);
+    };
 
-export class InPolygon extends Polygon {
-  addTree(): void {
-    const inVacTree = treeStore.getState().vi;
-    const polygon = naverPolygonToJstsPolygon(this.poly);
-    insertPolygonTree(inVacTree, polygon);
-  }
-  addHandleMove(): naver.maps.MapEventListener {
-    return this.map.addListener("mousemove", (e) => {
-      const fieldTree = treeStore.getState().field;
-      const snapPoint = searchSnapPoint(fieldTree, e.latlng);
+    return polygon;
+  };
 
-      if (snapPoint === undefined && !isInside(fieldTree, e.latlng)) return;
+  dm.setOptions("polygonOptions", options);
+  dm.setOptions("drawingMode", naver.maps.drawing.DrawingMode.POLYGON);
+  const removeListener = dm.addListener(
+    naver.maps.drawing.DrawingEvents.REMOVE,
+    (e) => {}
+  );
+  const addListener = dm.addListener(
+    naver.maps.drawing.DrawingEvents.ADD,
+    (e) => {
+      // @ts-ignore
+      dm._drawingTool._createOverlay = originCreateOverlay;
+    }
+  );
+  const escapeHandler = naver.maps.Event.addListener(
+    dm,
+    "escape_changed",
+    (e) => {
+      if (e === false) return;
+      // @ts-ignore
+      dm._drawingTool._createOverlay = originCreateOverlay;
+      dm.removeListener([removeListener, addListener]);
+      naver.maps.Event.removeListener(escapeHandler);
+    }
+  );
+};
 
-      const mp = snapPoint
-        ? new naver.maps.LatLng(snapPoint[1], snapPoint[0])
-        : e.latlng;
-      this.path.pop();
-      this.path.push(mp);
-      this.poly.setPath(this.path);
-    });
-  }
-}
+export const createPolygon = ({
+  dm,
+  options,
+  tree,
+}: {
+  dm: naver.maps.drawing.DrawingManager;
+  options: Partial<naver.maps.PolygonOptions>;
+  tree: RBush<TreeItem<jsts.geom.Polygon>>;
+}) => {
+  dm.setOptions("polygonOptions", options);
+  dm.setOptions("drawingMode", naver.maps.drawing.DrawingMode.POLYGON);
 
-export class OutPolygon extends Polygon {
-  addTree(): void {
-    const outVacTree = treeStore.getState().vo;
-    const polygon = naverPolygonToJstsPolygon(this.poly);
-    insertPolygonTree(outVacTree, polygon);
-  }
-  addHandleMove(): naver.maps.MapEventListener {
-    return this.map.addListener("mousemove", (e) => {
-      const fieldTree = treeStore.getState().field;
-      const snapPoint = searchSnapPoint(fieldTree, e.latlng);
-
-      if (snapPoint === undefined && isInside(fieldTree, e.latlng)) return;
-
-      const mp = snapPoint
-        ? new naver.maps.LatLng(snapPoint[1], snapPoint[0])
-        : e.latlng;
-      this.path.pop();
-      this.path.push(mp);
-      this.poly.setPath(this.path);
-    });
-  }
-}
+  const removeListener = dm.addListener(
+    naver.maps.drawing.DrawingEvents.REMOVE,
+    (e) => {}
+  );
+  const addListener = dm.addListener(
+    naver.maps.drawing.DrawingEvents.ADD,
+    (e) => {
+      // @ts-ignore
+      insert(tree, e);
+    }
+  );
+  const escapeHandler = naver.maps.Event.addListener(
+    dm,
+    "escape_changed",
+    (e) => {
+      if (e === false) return;
+      dm.removeListener([removeListener, addListener]);
+      naver.maps.Event.removeListener(escapeHandler);
+    }
+  );
+};
