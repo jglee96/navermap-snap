@@ -36,7 +36,7 @@ script.onload = () => {
       shape.createPolygon({
         dm,
         options: {
-          fillColor: "rgb(255, 51, 51)",
+          fillColor: "#FF3333",
           fillOpacity: 0.4,
           strokeColor: "#FF3333",
           strokeWeight: 3,
@@ -50,11 +50,11 @@ script.onload = () => {
       shape.createSnapPolygon({
         dm,
         options: {
-          fillColor: "rgb(255, 51, 51)",
+          fillColor: "cyan",
           fillOpacity: 0.4,
-          strokeColor: "#FF3333",
+          strokeColor: "cyan",
           strokeWeight: 3,
-          strokeStyle: "shortdashdotdot",
+          strokeStyle: "solid",
         },
         tree: treeStore.getState().tree,
         type: "in",
@@ -65,11 +65,11 @@ script.onload = () => {
       shape.createSnapPolygon({
         dm,
         options: {
-          fillColor: "rgb(255, 51, 51)",
+          fillColor: "blue",
           fillOpacity: 0.4,
-          strokeColor: "#FF3333",
+          strokeColor: "blue",
           strokeWeight: 3,
-          strokeStyle: "shortdashdotdot",
+          strokeStyle: "solid",
         },
         tree: treeStore.getState().tree,
         type: "out",
