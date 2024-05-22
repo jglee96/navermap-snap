@@ -1,6 +1,15 @@
 import RBush from "rbush";
 import * as jsts from "jsts";
-import { TreeItem, checkInside, insert, searchSnapPoint } from "./common";
+import {
+  TreeItem,
+  checkInside,
+  insert,
+  getSnapPoint,
+  getRestrictedPoint,
+  PROJ_TM,
+  PROJ_LL,
+} from "./common";
+import proj4 from "proj4";
 
 export const createSnapPolygon = ({
   dm,
@@ -17,28 +26,30 @@ export const createSnapPolygon = ({
   const originCreateOverlay = dm._drawingTool._createOverlay;
   // @ts-ignore
   dm._drawingTool._createOverlay = (t: any, e: any) => {
-    const isInside = checkInside(tree, e);
-    let fp = e;
-
     const polygon = new naver.maps.Polygon({
       map: dm.getMap()!,
-      paths: [[fp, fp]],
+      paths: [[e, e]],
       ...options,
     });
 
     // @ts-ignore
     polygon.updateLastPath = function (e: any) {
       const isInside = checkInside(tree, e);
-      if ((type === "in" && !isInside) || (type === "out" && isInside)) return;
-
-      const snapPoint = searchSnapPoint(tree, e);
-
-      const mp = snapPoint
-        ? new naver.maps.LatLng(snapPoint[1], snapPoint[0])
-        : e;
-
       const t = this.getPath();
       t.pop();
+      const lastPoint = t.pop() as naver.maps.LatLng | undefined;
+      let point: number[] = [];
+      if ((type === "in" && !isInside) || (type === "out" && isInside)) {
+        point = getRestrictedPoint(tree, e, lastPoint);
+      } else {
+        point = getSnapPoint(tree, e);
+      }
+
+      const ll = proj4(PROJ_TM, PROJ_LL, point);
+
+      const mp = point.length > 0 ? new naver.maps.LatLng(ll[1], ll[0]) : e;
+
+      lastPoint && t.push(lastPoint);
       t.push(mp);
     };
 
@@ -62,7 +73,7 @@ export const createSnapPolygon = ({
         return;
       }
 
-      const snapPoint = searchSnapPoint(tree, e);
+      const snapPoint = getSnapPoint(tree, e);
 
       const mp = snapPoint
         ? new naver.maps.LatLng(snapPoint[1], snapPoint[0])

@@ -26,11 +26,11 @@ script.onload = () => {
     const mapDiv = map.getElement();
 
     const addFieldBtn = document.createElement("button");
-    addFieldBtn.innerText = "Add Field Polygon";
+    addFieldBtn.innerText = "Draw Main Polygon";
     const inVacBtn = document.createElement("button");
-    inVacBtn.innerText = "Add Inside Vacancy Polygon";
+    inVacBtn.innerText = "Draw Snap In Polygon";
     const outVacBtn = document.createElement("button");
-    outVacBtn.innerText = "Add Outside Vacancy Polygon";
+    outVacBtn.innerText = "Draw Snap Out Polygon";
 
     addFieldBtn.onclick = () => {
       shape.createPolygon({
