@@ -74,10 +74,9 @@ export const createSnapPolygon = ({
       }
 
       const snapPoint = getSnapPoint(tree, e);
+      const ll = proj4(PROJ_TM, PROJ_LL, snapPoint);
 
-      const mp = snapPoint
-        ? new naver.maps.LatLng(snapPoint[1], snapPoint[0])
-        : e;
+      const mp = snapPoint ? new naver.maps.LatLng(ll[1], ll[0]) : e;
 
       const t = this.getPath();
       t.push(mp);
