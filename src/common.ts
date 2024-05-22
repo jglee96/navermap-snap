@@ -114,6 +114,34 @@ export const update = (
   tree.insert(item);
 };
 
+export const polygonToLine = (polygon: jsts.geom.Polygon) => {
+  const exteriorCoords = polygon.getExteriorRing().getCoordinates();
+  const result: jsts.geom.LineString[] = [];
+  result.push(
+    ...exteriorCoords.map((coord, i) =>
+      factory.createLineString([
+        coord,
+        i === exteriorCoords.length - 1
+          ? exteriorCoords[0]
+          : exteriorCoords[i + 1],
+      ])
+    )
+  );
+
+  for (let i = 0; i < polygon.getNumInteriorRing(); i++) {
+    const coords = polygon.getInteriorRingN(i).getCoordinates();
+    result.push(
+      ...coords.map((coord, i) =>
+        factory.createLineString([
+          coord,
+          i === coords.length - 1 ? coords[0] : coords[i + 1],
+        ])
+      )
+    );
+  }
+  return result;
+};
+
 export const getNearestPoint = (
   items: TreeItem<jsts.geom.Polygon>[],
   latlng: naver.maps.LatLng
@@ -130,14 +158,10 @@ export const getNearestPoint = (
     min.distance > cur.distance ? cur : min
   ).poly;
 
-  const exteriroCoords = nearestPolygon.getExteriorRing().getCoordinates();
-  const nearestPoint = exteriroCoords
-    .map((coord, i): [number, jsts.geom.Coordinate] => {
-      if (i === exteriroCoords.length - 1)
-        return [Infinity, new jsts.geom.Coordinate()];
-      const lineStr = factory.createLineString([coord, exteriroCoords[i + 1]]);
+  const nearestPoint = polygonToLine(nearestPolygon)
+    .map((line): [number, jsts.geom.Coordinate] => {
       const nearestPoints = jsts.operation.distance.DistanceOp.nearestPoints(
-        lineStr,
+        line,
         point
       );
       const np = factory.createPoint(nearestPoints[0]);
@@ -146,8 +170,7 @@ export const getNearestPoint = (
     })
     .reduce((min, cur) => (min[0] > cur[0] ? cur : min));
 
-  const np = factory.createPoint(nearestPoint[1]);
-  return [np.getX(), np.getY()];
+  return [nearestPoint[1].x, nearestPoint[1].y];
 };
 
 export const getSnapPoint = (
@@ -155,6 +178,8 @@ export const getSnapPoint = (
   latlng: naver.maps.LatLng
 ): number[] => {
   const bufferSize = 10;
+  const p = proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
+  const point = factory.createPoint(new jsts.geom.Coordinate(p[0], p[1]));
   const p1 = latlng.destinationPoint(135, bufferSize);
   const p2 = latlng.destinationPoint(315, bufferSize);
 
@@ -168,10 +193,41 @@ export const getSnapPoint = (
   };
 
   const result = tree.search(searchItem);
-
   if (result.length === 0) return proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
 
-  return getNearestPoint(result, latlng);
+  const lineTree = new RBush<TreeItem<jsts.geom.LineString>>();
+  lineTree.load(
+    result
+      .flatMap((p) => polygonToLine(p.geom))
+      .map(
+        (line): TreeItem<jsts.geom.LineString> => ({
+          minX: line.getEnvelopeInternal().getMinX(),
+          minY: line.getEnvelopeInternal().getMinY(),
+          maxX: line.getEnvelopeInternal().getMaxX(),
+          maxY: line.getEnvelopeInternal().getMaxY(),
+          id: undefined,
+          geom: line,
+        })
+      )
+  );
+
+  const lineResult = lineTree.search(searchItem);
+  if (lineResult.length === 0)
+    return proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
+
+  const nearestPoint = lineResult
+    .map(({ geom }): [number, jsts.geom.Coordinate] => {
+      const nearestPoints = jsts.operation.distance.DistanceOp.nearestPoints(
+        geom,
+        point
+      );
+      const np = factory.createPoint(nearestPoints[0]);
+      const dist = jsts.operation.distance.DistanceOp.distance(point, np);
+      return [dist, nearestPoints[0]];
+    })
+    .reduce((min, cur) => (min[0] > cur[0] ? cur : min));
+
+  return [nearestPoint[1].x, nearestPoint[1].y];
 };
 
 export const getRestrictedPoint = (

@@ -88,13 +88,9 @@ export const createSnapPolygon = ({
 
   dm.setOptions("polygonOptions", options);
   dm.setOptions("drawingMode", naver.maps.drawing.DrawingMode.POLYGON);
-  const removeListener = dm.addListener(
-    naver.maps.drawing.DrawingEvents.REMOVE,
-    (e) => {}
-  );
   const addListener = dm.addListener(
     naver.maps.drawing.DrawingEvents.ADD,
-    (e) => {
+    () => {
       // @ts-ignore
       dm._drawingTool._createOverlay = originCreateOverlay;
     }
@@ -106,7 +102,7 @@ export const createSnapPolygon = ({
       if (e === false) return;
       // @ts-ignore
       dm._drawingTool._createOverlay = originCreateOverlay;
-      dm.removeListener([removeListener, addListener]);
+      dm.removeListener([addListener]);
       naver.maps.Event.removeListener(escapeHandler);
     }
   );
@@ -124,10 +120,6 @@ export const createPolygon = ({
   dm.setOptions("polygonOptions", options);
   dm.setOptions("drawingMode", naver.maps.drawing.DrawingMode.POLYGON);
 
-  const removeListener = dm.addListener(
-    naver.maps.drawing.DrawingEvents.REMOVE,
-    (e) => {}
-  );
   const addListener = dm.addListener(
     naver.maps.drawing.DrawingEvents.ADD,
     (e) => {
@@ -140,7 +132,7 @@ export const createPolygon = ({
     "escape_changed",
     (e) => {
       if (e === false) return;
-      dm.removeListener([removeListener, addListener]);
+      dm.removeListener([addListener]);
       naver.maps.Event.removeListener(escapeHandler);
     }
   );
