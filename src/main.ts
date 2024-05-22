@@ -25,14 +25,14 @@ script.onload = () => {
 
     const mapDiv = map.getElement();
 
-    const addFieldBtn = document.createElement("button");
-    addFieldBtn.innerText = "Draw Main Polygon";
-    const inVacBtn = document.createElement("button");
-    inVacBtn.innerText = "Draw Snap In Polygon";
-    const outVacBtn = document.createElement("button");
-    outVacBtn.innerText = "Draw Snap Out Polygon";
+    const mainBtn = document.createElement("button");
+    mainBtn.innerText = "Draw Main Polygon";
+    const snapInBtn = document.createElement("button");
+    snapInBtn.innerText = "Draw Snap In Polygon";
+    const snapOutBtn = document.createElement("button");
+    snapOutBtn.innerText = "Draw Snap Out Polygon";
 
-    addFieldBtn.onclick = () => {
+    mainBtn.onclick = () => {
       shape.createPolygon({
         dm,
         options: {
@@ -46,8 +46,8 @@ script.onload = () => {
       });
     };
 
-    inVacBtn.onclick = () => {
-      shape.createSnapPolygon({
+    snapInBtn.onclick = () => {
+      shape.createSnapInPolygon({
         dm,
         options: {
           fillColor: "cyan",
@@ -57,12 +57,11 @@ script.onload = () => {
           strokeStyle: "solid",
         },
         tree: treeStore.getState().tree,
-        type: "in",
       });
     };
 
-    outVacBtn.onclick = () => {
-      shape.createSnapPolygon({
+    snapOutBtn.onclick = () => {
+      shape.createSnapOutPolygon({
         dm,
         options: {
           fillColor: "blue",
@@ -72,12 +71,11 @@ script.onload = () => {
           strokeStyle: "solid",
         },
         tree: treeStore.getState().tree,
-        type: "out",
       });
     };
 
-    document.body.insertBefore(addFieldBtn, mapDiv);
-    document.body.insertBefore(inVacBtn, mapDiv);
-    document.body.insertBefore(outVacBtn, mapDiv);
+    document.body.insertBefore(mainBtn, mapDiv);
+    document.body.insertBefore(snapInBtn, mapDiv);
+    document.body.insertBefore(snapOutBtn, mapDiv);
   };
 };

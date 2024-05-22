@@ -33,12 +33,13 @@ export const naverPolygonToGeom = (polygon: naver.maps.Polygon) => {
   return factory.createPolygon(coords);
 };
 
-export const checkInside = (
-  tree: RBush<TreeItem<jsts.geom.Polygon>>,
-  latlng: naver.maps.LatLng
+export const search = <T extends jsts.geom.Geometry>(
+  tree: RBush<TreeItem<T>>,
+  latlng: naver.maps.LatLng,
+  buffer = 2
 ) => {
-  const p1 = latlng.destinationPoint(135, 2);
-  const p2 = latlng.destinationPoint(315, 2);
+  const p1 = latlng.destinationPoint(135, buffer);
+  const p2 = latlng.destinationPoint(315, buffer);
 
   const t1 = proj4(PROJ_LL, PROJ_TM, [p1.x, p1.y]);
   const t2 = proj4(PROJ_LL, PROJ_TM, [p2.x, p2.y]);
@@ -50,6 +51,14 @@ export const checkInside = (
   };
 
   const result = tree.search(searchObject);
+  return result;
+};
+
+export const checkInside = (
+  tree: RBush<TreeItem<jsts.geom.Polygon>>,
+  latlng: naver.maps.LatLng
+) => {
+  const result = search(tree, latlng);
 
   if (result.length === 0) return undefined;
 
@@ -180,19 +189,8 @@ export const getSnapPoint = (
   const bufferSize = 10;
   const p = proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
   const point = factory.createPoint(new jsts.geom.Coordinate(p[0], p[1]));
-  const p1 = latlng.destinationPoint(135, bufferSize);
-  const p2 = latlng.destinationPoint(315, bufferSize);
 
-  const t1 = proj4(PROJ_LL, PROJ_TM, [p1.x, p1.y]);
-  const t2 = proj4(PROJ_LL, PROJ_TM, [p2.x, p2.y]);
-  const searchItem: BBox = {
-    minX: Math.min(t1[0], t2[0]),
-    minY: Math.min(t1[1], t2[1]),
-    maxX: Math.max(t1[0], t2[0]),
-    maxY: Math.max(t1[1], t2[1]),
-  };
-
-  const result = tree.search(searchItem);
+  const result = search(tree, latlng, bufferSize);
   if (result.length === 0) return proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
 
   const lineTree = new RBush<TreeItem<jsts.geom.LineString>>();
@@ -211,7 +209,7 @@ export const getSnapPoint = (
       )
   );
 
-  const lineResult = lineTree.search(searchItem);
+  const lineResult = search(lineTree, latlng, bufferSize);
   if (lineResult.length === 0)
     return proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
 
@@ -263,14 +261,17 @@ export const getRestrictedPoint = (
   ) {
     return getNearestPoint(result, cur);
   }
-  const intersections = result[0].geom.intersection(
-    factory.createLineString([
-      new jsts.geom.Coordinate(curT[0], curT[1]),
-      new jsts.geom.Coordinate(prevT[0], prevT[1]),
-    ])
+
+  const intersections = result.map(({ geom }) =>
+    geom.intersection(
+      factory.createLineString([
+        new jsts.geom.Coordinate(curT[0], curT[1]),
+        new jsts.geom.Coordinate(prevT[0], prevT[1]),
+      ])
+    )
   );
   const first = intersections
-    .getCoordinates()
+    .flatMap((g) => g.getCoordinates())
     .reduce((min, cur) =>
       jsts.operation.distance.DistanceOp.distance(
         factory.createPoint(new jsts.geom.Coordinate(prevT[0], prevT[1])),
