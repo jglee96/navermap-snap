@@ -8,6 +8,9 @@ import {
   getRestrictedPoint,
   PROJ_TM,
   PROJ_LL,
+  search,
+  checkCross,
+  getNearestPoint,
 } from "./common";
 import proj4 from "proj4";
 
@@ -24,7 +27,13 @@ export const createSnapInPolygon = ({
   const originCreateOverlay = dm._drawingTool._createOverlay;
   // @ts-ignore
   dm._drawingTool._createOverlay = (t: any, e: any) => {
-    const ll = proj4(PROJ_TM, PROJ_LL, getSnapPoint(tree, e));
+    const ll = proj4(
+      PROJ_TM,
+      PROJ_LL,
+      checkInside(search(tree, e), e)
+        ? getSnapPoint(tree, e)
+        : getNearestPoint(tree.all(), e)
+    );
     const fp = new naver.maps.LatLng(ll[1], ll[0]);
     const polygon = new naver.maps.Polygon({
       map: dm.getMap()!,
@@ -38,10 +47,15 @@ export const createSnapInPolygon = ({
       t.pop();
       const lastPoint = t.pop() as naver.maps.LatLng | undefined;
       let point: number[] = [];
-      if (!checkInside(tree, e)) {
+      if (checkCross(tree.all(), e, lastPoint, 0.1)) {
+        console.log("CROSSS");
         point = getRestrictedPoint(tree, e, lastPoint);
-      } else {
+      } else if (checkInside(search(tree, e), e)) {
+        console.log("INSIDE");
         point = getSnapPoint(tree, e);
+      } else {
+        console.log("OUTSIDE");
+        point = getNearestPoint(tree.all(), e);
       }
 
       const ll = proj4(PROJ_TM, PROJ_LL, point);
@@ -54,6 +68,7 @@ export const createSnapInPolygon = ({
 
     // @ts-ignore
     polygon.addPath = function (e) {
+      const searchResult = search(tree, e);
       /**
        * 내외부 조건이 맞지 않는 상태에서 클릭시
        * 마지막 점을 path로 적용하는 로직
@@ -62,7 +77,7 @@ export const createSnapInPolygon = ({
        * 첫번째 push로 고정된 point 적용
        * 두번째 push로 move하면서 변경될 point 적용
        */
-      if (!checkInside(tree, e)) {
+      if (!checkInside(searchResult, e)) {
         const t = this.getPath();
         const last = t.pop() as naver.maps.LatLng | undefined;
         if (last === undefined) return;
@@ -130,7 +145,8 @@ export const createSnapOutPolygon = ({
       t.pop();
       const lastPoint = t.pop() as naver.maps.LatLng | undefined;
       let point: number[] = [];
-      if (checkInside(tree, e)) {
+      const searchResult = search(tree, e);
+      if (checkInside(searchResult, e)) {
         point = getRestrictedPoint(tree, e, lastPoint);
       } else {
         point = getSnapPoint(tree, e);
@@ -146,6 +162,7 @@ export const createSnapOutPolygon = ({
 
     // @ts-ignore
     polygon.addPath = function (e) {
+      const searchResult = search(tree, e);
       /**
        * 내외부 조건이 맞지 않는 상태에서 클릭시
        * 마지막 점을 path로 적용하는 로직
@@ -154,7 +171,7 @@ export const createSnapOutPolygon = ({
        * 첫번째 push로 고정된 point 적용
        * 두번째 push로 move하면서 변경될 point 적용
        */
-      if (checkInside(tree, e)) {
+      if (checkInside(searchResult, e)) {
         const t = this.getPath();
         const last = t.pop() as naver.maps.LatLng | undefined;
         if (last === undefined) return;

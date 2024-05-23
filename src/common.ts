@@ -16,6 +16,7 @@ export const PROJ_TM =
   "+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs";
 
 const factory = new jsts.geom.GeometryFactory();
+const writer = new jsts.io.WKTWriter();
 
 export const naverPolygonToGeom = (polygon: naver.maps.Polygon) => {
   const coords = (polygon.getPath() as naver.maps.KVOArrayOfCoords)
@@ -55,17 +56,37 @@ export const search = <T extends jsts.geom.Geometry>(
 };
 
 export const checkInside = (
-  tree: RBush<TreeItem<jsts.geom.Polygon>>,
+  items: TreeItem<jsts.geom.Polygon>[],
   latlng: naver.maps.LatLng
 ) => {
-  const result = search(tree, latlng);
-
-  if (result.length === 0) return undefined;
+  if (items.length === 0) return false;
 
   const p = proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
   const point = factory.createPoint(new jsts.geom.Coordinate(p[0], p[1]));
 
-  return result.some((item) => item.geom.covers(point));
+  return items.some((item) => item.geom.covers(point));
+};
+
+export const checkCross = (
+  items: TreeItem<jsts.geom.Polygon>[],
+  cur: naver.maps.LatLng,
+  prev?: naver.maps.LatLng,
+  tolerance = 0
+) => {
+  if (items.length === 0) return false;
+  if (prev === undefined) return false;
+
+  const start = proj4(PROJ_LL, PROJ_TM, [cur.x, cur.y]);
+  const end = proj4(PROJ_LL, PROJ_TM, [prev.x, prev.y]);
+  const line = factory.createLineString([
+    new jsts.geom.Coordinate(start[0], start[1]),
+    new jsts.geom.Coordinate(end[0], end[1]),
+  ]);
+  return items.some(
+    (item) =>
+      !item.geom.buffer(tolerance).covers(line) &&
+      item.geom.buffer(tolerance).intersects(line)
+  );
 };
 
 export const insert = (
@@ -123,6 +144,17 @@ export const update = (
   tree.insert(item);
 };
 
+export const polygonToRing = (polygon: jsts.geom.Polygon, buffer = 0) => {
+  const result: jsts.geom.LinearRing[] = [];
+  const bufferedPolygon = polygon.buffer(buffer) as jsts.geom.Polygon;
+  result.push(bufferedPolygon.getExteriorRing());
+
+  for (let i = 0; i < bufferedPolygon.getNumInteriorRing(); i++) {
+    result.push(bufferedPolygon.getInteriorRingN(i));
+  }
+  return result;
+};
+
 export const polygonToLine = (polygon: jsts.geom.Polygon) => {
   const exteriorCoords = polygon.getExteriorRing().getCoordinates();
   const result: jsts.geom.LineString[] = [];
@@ -167,7 +199,7 @@ export const getNearestPoint = (
     min.distance > cur.distance ? cur : min
   ).poly;
 
-  const nearestPoint = polygonToLine(nearestPolygon)
+  const nearestPoint = polygonToRing(nearestPolygon)
     .map((line): [number, jsts.geom.Coordinate] => {
       const nearestPoints = jsts.operation.distance.DistanceOp.nearestPoints(
         line,
@@ -250,35 +282,30 @@ export const getRestrictedPoint = (
 
   if (result.length === 0) return curT;
 
-  if (
-    result.some(({ geom }) =>
-      geom
-        .buffer(2)
-        .covers(
-          factory.createPoint(new jsts.geom.Coordinate(prevT[0], prevT[1]))
-        )
-    )
-  ) {
-    return getNearestPoint(result, cur);
-  }
-
-  const intersections = result.map(({ geom }) =>
-    geom.intersection(
-      factory.createLineString([
-        new jsts.geom.Coordinate(curT[0], curT[1]),
-        new jsts.geom.Coordinate(prevT[0], prevT[1]),
-      ])
-    )
+  const prevGeom = factory.createPoint(
+    new jsts.geom.Coordinate(prevT[0], prevT[1])
   );
+
+  const currentLine = factory.createLineString([
+    new jsts.geom.Coordinate(curT[0], curT[1]),
+    new jsts.geom.Coordinate(prevT[0], prevT[1]),
+  ]);
+  const intersections = result
+    .flatMap(({ geom }) => polygonToRing(geom, 1))
+    .map((ring) => currentLine.intersection(ring))
+    .filter((g) => !g.isEmpty());
+
+  if (intersections.length === 0) return curT;
+
   const first = intersections
     .flatMap((g) => g.getCoordinates())
     .reduce((min, cur) =>
       jsts.operation.distance.DistanceOp.distance(
-        factory.createPoint(new jsts.geom.Coordinate(prevT[0], prevT[1])),
+        prevGeom,
         factory.createPoint(min)
       ) >
       jsts.operation.distance.DistanceOp.distance(
-        factory.createPoint(new jsts.geom.Coordinate(prevT[0], prevT[1])),
+        prevGeom,
         factory.createPoint(cur)
       )
         ? cur

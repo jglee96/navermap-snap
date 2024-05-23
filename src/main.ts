@@ -21,6 +21,8 @@ script.onload = () => {
     const map = new naver.maps.Map("map", {
       zoom: 20,
     });
+    const cadastralLayer = new naver.maps.CadastralLayer();
+    cadastralLayer.setMap(map);
     const dm = new naver.maps.drawing.DrawingManager({ map });
 
     const mapDiv = map.getElement();
