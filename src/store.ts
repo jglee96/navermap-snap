@@ -1,7 +1,7 @@
 import RBush from "rbush";
 import { create } from "zustand";
 import * as jsts from "jsts";
-import { TreeItem } from "./geo";
+import { TreeItem } from "./tree";
 
 interface State {
   tree: RBush<TreeItem<jsts.geom.Polygon>>;
