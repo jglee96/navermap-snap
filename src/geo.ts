@@ -1,22 +1,73 @@
 import RBush, { BBox } from "rbush";
 import proj4 from "proj4";
 import * as jsts from "jsts";
-
-export type TreeItem<T extends jsts.geom.Geometry> = {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-  id: T extends jsts.geom.Polygon ? string : undefined;
-  geom: T;
-};
+import { TreeItem, search } from "./tree";
 
 export const PROJ_LL = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs";
 export const PROJ_TM =
   "+proj=tmerc +lat_0=38 +lon_0=127 +k=1 +x_0=200000 +y_0=600000 +ellps=GRS80 +units=m +no_defs";
 
 const factory = new jsts.geom.GeometryFactory();
-const writer = new jsts.io.WKTWriter();
+
+export const checkSnap = (
+  tree: RBush<TreeItem<jsts.geom.Polygon>>,
+  latlng: naver.maps.LatLng,
+  tolerance = 2
+) => {
+  const p = proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
+  const point = factory.createPoint(new jsts.geom.Coordinate(p[0], p[1]));
+
+  const result = search(tree, latlng);
+  return result.some(({ geom }) =>
+    polygonToRing(geom).some(
+      (ring) =>
+        jsts.operation.distance.DistanceOp.distance(ring, point) <= tolerance
+    )
+  );
+};
+
+export const checkInside = (
+  tree: RBush<TreeItem<jsts.geom.Polygon>>,
+  latlng: naver.maps.LatLng
+) => {
+  const p = proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
+  const point = factory.createPoint(new jsts.geom.Coordinate(p[0], p[1]));
+  const env = point.getEnvelopeInternal();
+
+  const items = tree.search({
+    minX: env.getMinX(),
+    minY: env.getMinY(),
+    maxX: env.getMaxX(),
+    maxY: env.getMaxY(),
+  });
+
+  return items.some(({ geom }) => point.within(geom));
+};
+
+export const checkCross = (
+  tree: RBush<TreeItem<jsts.geom.Polygon>>,
+  cur: naver.maps.LatLng,
+  prev: naver.maps.LatLng
+) => {
+  if (prev === undefined) return false;
+
+  const start = proj4(PROJ_LL, PROJ_TM, [prev.x, prev.y]);
+  const end = proj4(PROJ_LL, PROJ_TM, [cur.x, cur.y]);
+  const line = factory.createLineString([
+    new jsts.geom.Coordinate(start[0], start[1]),
+    new jsts.geom.Coordinate(end[0], end[1]),
+  ]);
+  const env = line.getEnvelopeInternal();
+  const items = tree.search({
+    minX: env.getMinX(),
+    minY: env.getMinY(),
+    maxX: env.getMaxX(),
+    maxY: env.getMaxY(),
+  });
+  return items.some(
+    (item) => !item.geom.covers(line) && item.geom.intersects(line)
+  );
+};
 
 export const naverPolygonToGeom = (polygon: naver.maps.Polygon) => {
   const coords = (polygon.getPath() as naver.maps.KVOArrayOfCoords)
@@ -34,123 +85,12 @@ export const naverPolygonToGeom = (polygon: naver.maps.Polygon) => {
   return factory.createPolygon(coords);
 };
 
-export const search = <T extends jsts.geom.Geometry>(
-  tree: RBush<TreeItem<T>>,
-  latlng: naver.maps.LatLng,
-  buffer = 2
-) => {
-  const p1 = latlng.destinationPoint(135, buffer);
-  const p2 = latlng.destinationPoint(315, buffer);
-
-  const t1 = proj4(PROJ_LL, PROJ_TM, [p1.x, p1.y]);
-  const t2 = proj4(PROJ_LL, PROJ_TM, [p2.x, p2.y]);
-  const searchObject = {
-    minX: Math.min(t1[0], t2[0]),
-    minY: Math.min(t1[1], t2[1]),
-    maxX: Math.max(t1[0], t2[0]),
-    maxY: Math.max(t1[1], t2[1]),
-  };
-
-  const result = tree.search(searchObject);
-  return result;
-};
-
-export const checkInside = (
-  items: TreeItem<jsts.geom.Polygon>[],
-  latlng: naver.maps.LatLng
-) => {
-  if (items.length === 0) return false;
-
-  const p = proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
-  const point = factory.createPoint(new jsts.geom.Coordinate(p[0], p[1]));
-
-  return items.some((item) => item.geom.covers(point));
-};
-
-export const checkCross = (
-  items: TreeItem<jsts.geom.Polygon>[],
-  cur: naver.maps.LatLng,
-  prev?: naver.maps.LatLng,
-  tolerance = 0
-) => {
-  if (items.length === 0) return false;
-  if (prev === undefined) return false;
-
-  const start = proj4(PROJ_LL, PROJ_TM, [cur.x, cur.y]);
-  const end = proj4(PROJ_LL, PROJ_TM, [prev.x, prev.y]);
-  const line = factory.createLineString([
-    new jsts.geom.Coordinate(start[0], start[1]),
-    new jsts.geom.Coordinate(end[0], end[1]),
-  ]);
-  return items.some(
-    (item) =>
-      !item.geom.buffer(tolerance).covers(line) &&
-      item.geom.buffer(tolerance).intersects(line)
-  );
-};
-
-export const insert = (
-  tree: RBush<TreeItem<jsts.geom.Polygon>>,
-  polygon: naver.maps.Polygon
-) => {
-  const geom = naverPolygonToGeom(polygon);
-  const env = geom.getEnvelopeInternal();
-
-  const item: TreeItem<jsts.geom.Polygon> = {
-    minX: env.getMinX(),
-    minY: env.getMinY(),
-    maxX: env.getMaxX(),
-    maxY: env.getMaxY(),
-    // @ts-ignore
-    id: polygon.id,
-    geom,
-  };
-  tree.insert(item);
-};
-
-export const remove = (
-  tree: RBush<TreeItem<jsts.geom.Polygon>>,
-  id: string
-) => {
-  const item: TreeItem<jsts.geom.Polygon> = {
-    minX: 0,
-    minY: 0,
-    maxX: 0,
-    maxY: 0,
-    id,
-    geom: factory.createPolygon(),
-  };
-
-  tree.remove(item, (a, b) => a.id === b.id);
-};
-
-export const update = (
-  tree: RBush<TreeItem<jsts.geom.Polygon>>,
-  polygon: naver.maps.Polygon
-) => {
-  const geom = naverPolygonToGeom(polygon);
-  const env = geom.getEnvelopeInternal();
-
-  const item: TreeItem<jsts.geom.Polygon> = {
-    minX: env.getMinX(),
-    minY: env.getMinY(),
-    maxX: env.getMaxX(),
-    maxY: env.getMaxY(),
-    // @ts-ignore
-    id: polygon.id,
-    geom,
-  };
-  tree.remove(item, (a, b) => a.id === b.id);
-  tree.insert(item);
-};
-
-export const polygonToRing = (polygon: jsts.geom.Polygon, buffer = 0) => {
+export const polygonToRing = (polygon: jsts.geom.Polygon) => {
   const result: jsts.geom.LinearRing[] = [];
-  const bufferedPolygon = polygon.buffer(buffer) as jsts.geom.Polygon;
-  result.push(bufferedPolygon.getExteriorRing());
+  result.push(polygon.getExteriorRing());
 
-  for (let i = 0; i < bufferedPolygon.getNumInteriorRing(); i++) {
-    result.push(bufferedPolygon.getInteriorRingN(i));
+  for (let i = 0; i < polygon.getNumInteriorRing(); i++) {
+    result.push(polygon.getInteriorRingN(i));
   }
   return result;
 };
@@ -216,13 +156,13 @@ export const getNearestPoint = (
 
 export const getSnapPoint = (
   tree: RBush<TreeItem<jsts.geom.Polygon>>,
-  latlng: naver.maps.LatLng
+  latlng: naver.maps.LatLng,
+  tolerance = 10
 ): number[] => {
-  const bufferSize = 10;
   const p = proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
   const point = factory.createPoint(new jsts.geom.Coordinate(p[0], p[1]));
 
-  const result = search(tree, latlng, bufferSize);
+  const result = search(tree, latlng, tolerance);
   if (result.length === 0) return proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
 
   const lineTree = new RBush<TreeItem<jsts.geom.LineString>>();
@@ -241,7 +181,7 @@ export const getSnapPoint = (
       )
   );
 
-  const lineResult = search(lineTree, latlng, bufferSize);
+  const lineResult = search(lineTree, latlng, tolerance);
   if (lineResult.length === 0)
     return proj4(PROJ_LL, PROJ_TM, [latlng.x, latlng.y]);
 
@@ -260,52 +200,47 @@ export const getSnapPoint = (
   return [nearestPoint[1].x, nearestPoint[1].y];
 };
 
-export const getRestrictedPoint = (
+export const getCrossedPoint = (
   tree: RBush<TreeItem<jsts.geom.Polygon>>,
   cur: naver.maps.LatLng,
-  prev?: naver.maps.LatLng
+  prev: naver.maps.LatLng
 ): number[] => {
-  const curT = proj4(PROJ_LL, PROJ_TM, [cur.x, cur.y]);
-  if (prev === undefined) {
-    return getNearestPoint(tree.all(), cur);
-  }
-  const prevT = proj4(PROJ_LL, PROJ_TM, [prev.x, prev.y]);
+  const start = proj4(PROJ_LL, PROJ_TM, [prev.x, prev.y]);
+  const end = proj4(PROJ_LL, PROJ_TM, [cur.x, cur.y]);
+  const startCoord = new jsts.geom.Coordinate(start[0], start[1]);
+  const endCoord = new jsts.geom.Coordinate(end[0], end[1]);
+  const line = factory.createLineString([startCoord, endCoord]);
+  const env = line.getEnvelopeInternal();
 
   const searchItem: BBox = {
-    minX: Math.min(curT[0], prevT[0]),
-    minY: Math.min(curT[1], prevT[1]),
-    maxX: Math.max(curT[0], prevT[0]),
-    maxY: Math.max(curT[1], prevT[1]),
+    minX: env.getMinX(),
+    minY: env.getMinY(),
+    maxX: env.getMaxX(),
+    maxY: env.getMaxY(),
   };
 
   const result = tree.search(searchItem);
 
-  if (result.length === 0) return curT;
+  if (result.length === 0) return end;
 
-  const prevGeom = factory.createPoint(
-    new jsts.geom.Coordinate(prevT[0], prevT[1])
-  );
+  const startGeom = factory.createPoint(startCoord);
 
-  const currentLine = factory.createLineString([
-    new jsts.geom.Coordinate(curT[0], curT[1]),
-    new jsts.geom.Coordinate(prevT[0], prevT[1]),
-  ]);
   const intersections = result
-    .flatMap(({ geom }) => polygonToRing(geom, 1))
-    .map((ring) => currentLine.intersection(ring))
+    .flatMap(({ geom }) => polygonToRing(geom))
+    .map((ring) => line.intersection(ring))
     .filter((g) => !g.isEmpty());
 
-  if (intersections.length === 0) return curT;
+  if (intersections.length === 0) return end;
 
   const first = intersections
     .flatMap((g) => g.getCoordinates())
     .reduce((min, cur) =>
       jsts.operation.distance.DistanceOp.distance(
-        prevGeom,
+        startGeom,
         factory.createPoint(min)
       ) >
       jsts.operation.distance.DistanceOp.distance(
-        prevGeom,
+        startGeom,
         factory.createPoint(cur)
       )
         ? cur

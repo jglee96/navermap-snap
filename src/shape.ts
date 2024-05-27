@@ -1,18 +1,17 @@
 import RBush from "rbush";
 import * as jsts from "jsts";
 import {
-  TreeItem,
   checkInside,
-  insert,
   getSnapPoint,
-  getRestrictedPoint,
   PROJ_TM,
   PROJ_LL,
-  search,
   checkCross,
   getNearestPoint,
-} from "./common";
+  checkSnap,
+  getCrossedPoint,
+} from "./geo";
 import proj4 from "proj4";
+import { TreeItem, insert } from "./tree";
 
 export const createSnapInPolygon = ({
   dm,
@@ -30,7 +29,7 @@ export const createSnapInPolygon = ({
     const ll = proj4(
       PROJ_TM,
       PROJ_LL,
-      checkInside(search(tree, e), e)
+      checkInside(tree, e)
         ? getSnapPoint(tree, e)
         : getNearestPoint(tree.all(), e)
     );
@@ -46,50 +45,34 @@ export const createSnapInPolygon = ({
       const t = this.getPath();
       t.pop();
       const lastPoint = t.pop() as naver.maps.LatLng | undefined;
-      let point: number[] = [];
-      if (checkCross(tree.all(), e, lastPoint, 0.1)) {
-        console.log("CROSSS");
-        point = getRestrictedPoint(tree, e, lastPoint);
-      } else if (checkInside(search(tree, e), e)) {
-        console.log("INSIDE");
-        point = getSnapPoint(tree, e);
+
+      // previous point exist?
+      if (lastPoint !== undefined) {
+        // previous point is snapped?
+        if (!checkSnap(tree, lastPoint)) {
+          // has cross point with r-tree
+          if (checkCross(tree, e, lastPoint)) {
+            t.push(lastPoint);
+            const ll = proj4(
+              PROJ_TM,
+              PROJ_LL,
+              getCrossedPoint(tree, e, lastPoint)
+            );
+            const mp = new naver.maps.LatLng(ll[1], ll[0]);
+            t.push(mp);
+            return;
+          }
+        }
+      }
+
+      let ll: number[] = [];
+      if (checkInside(tree, e)) {
+        ll = proj4(PROJ_TM, PROJ_LL, getSnapPoint(tree, e));
       } else {
-        console.log("OUTSIDE");
-        point = getNearestPoint(tree.all(), e);
+        ll = proj4(PROJ_TM, PROJ_LL, getNearestPoint(tree.all(), e));
       }
-
-      const ll = proj4(PROJ_TM, PROJ_LL, point);
-
-      const mp = point.length > 0 ? new naver.maps.LatLng(ll[1], ll[0]) : e;
-
       lastPoint && t.push(lastPoint);
-      t.push(mp);
-    };
-
-    // @ts-ignore
-    polygon.addPath = function (e) {
-      const searchResult = search(tree, e);
-      /**
-       * 내외부 조건이 맞지 않는 상태에서 클릭시
-       * 마지막 점을 path로 적용하는 로직
-       * path는 kvo array이기 때문에 t[t.length - 1]로 마지막 element를 접근할 수 없음
-       * 따라서 pop으로 마지막 element 꺼내고
-       * 첫번째 push로 고정된 point 적용
-       * 두번째 push로 move하면서 변경될 point 적용
-       */
-      if (!checkInside(searchResult, e)) {
-        const t = this.getPath();
-        const last = t.pop() as naver.maps.LatLng | undefined;
-        if (last === undefined) return;
-        t.push(last.clone());
-        t.push(last.clone());
-        return;
-      }
-
-      const ll = proj4(PROJ_TM, PROJ_LL, getSnapPoint(tree, e));
       const mp = new naver.maps.LatLng(ll[1], ll[0]);
-
-      const t = this.getPath();
       t.push(mp);
     };
 
@@ -131,7 +114,13 @@ export const createSnapOutPolygon = ({
   const originCreateOverlay = dm._drawingTool._createOverlay;
   // @ts-ignore
   dm._drawingTool._createOverlay = (t: any, e: any) => {
-    const ll = proj4(PROJ_TM, PROJ_LL, getSnapPoint(tree, e));
+    const ll = proj4(
+      PROJ_TM,
+      PROJ_LL,
+      !checkInside(tree, e)
+        ? getSnapPoint(tree, e)
+        : getNearestPoint(tree.all(), e)
+    );
     const fp = new naver.maps.LatLng(ll[1], ll[0]);
     const polygon = new naver.maps.Polygon({
       map: dm.getMap()!,
@@ -144,46 +133,34 @@ export const createSnapOutPolygon = ({
       const t = this.getPath();
       t.pop();
       const lastPoint = t.pop() as naver.maps.LatLng | undefined;
-      let point: number[] = [];
-      const searchResult = search(tree, e);
-      if (checkInside(searchResult, e)) {
-        point = getRestrictedPoint(tree, e, lastPoint);
+
+      // previous point exist?
+      if (lastPoint !== undefined) {
+        // previous point is snapped?
+        if (!checkSnap(tree, lastPoint)) {
+          // has cross point with r-tree
+          if (checkCross(tree, e, lastPoint)) {
+            t.push(lastPoint);
+            const ll = proj4(
+              PROJ_TM,
+              PROJ_LL,
+              getCrossedPoint(tree, e, lastPoint)
+            );
+            const mp = new naver.maps.LatLng(ll[1], ll[0]);
+            t.push(mp);
+            return;
+          }
+        }
+      }
+
+      let ll: number[] = [];
+      if (!checkInside(tree, e)) {
+        ll = proj4(PROJ_TM, PROJ_LL, getSnapPoint(tree, e));
       } else {
-        point = getSnapPoint(tree, e);
+        ll = proj4(PROJ_TM, PROJ_LL, getNearestPoint(tree.all(), e));
       }
-
-      const ll = proj4(PROJ_TM, PROJ_LL, point);
-
-      const mp = point.length > 0 ? new naver.maps.LatLng(ll[1], ll[0]) : e;
-
       lastPoint && t.push(lastPoint);
-      t.push(mp);
-    };
-
-    // @ts-ignore
-    polygon.addPath = function (e) {
-      const searchResult = search(tree, e);
-      /**
-       * 내외부 조건이 맞지 않는 상태에서 클릭시
-       * 마지막 점을 path로 적용하는 로직
-       * path는 kvo array이기 때문에 t[t.length - 1]로 마지막 element를 접근할 수 없음
-       * 따라서 pop으로 마지막 element 꺼내고
-       * 첫번째 push로 고정된 point 적용
-       * 두번째 push로 move하면서 변경될 point 적용
-       */
-      if (checkInside(searchResult, e)) {
-        const t = this.getPath();
-        const last = t.pop() as naver.maps.LatLng | undefined;
-        if (last === undefined) return;
-        t.push(last.clone());
-        t.push(last.clone());
-        return;
-      }
-
-      const ll = proj4(PROJ_TM, PROJ_LL, getSnapPoint(tree, e));
       const mp = new naver.maps.LatLng(ll[1], ll[0]);
-
-      const t = this.getPath();
       t.push(mp);
     };
 
@@ -226,10 +203,8 @@ export const createPolygon = ({
 
   const addListener = dm.addListener(
     naver.maps.drawing.DrawingEvents.ADD,
-    (e) => {
-      // @ts-ignore
-      insert(tree, e);
-    }
+    // @ts-ignore
+    (e) => insert(tree, e)
   );
   const escapeHandler = naver.maps.Event.addListener(
     dm,
