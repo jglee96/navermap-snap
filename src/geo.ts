@@ -49,8 +49,6 @@ export const checkCross = (
   cur: naver.maps.LatLng,
   prev: naver.maps.LatLng
 ) => {
-  if (prev === undefined) return false;
-
   const start = proj4(PROJ_LL, PROJ_TM, [prev.x, prev.y]);
   const end = proj4(PROJ_LL, PROJ_TM, [cur.x, cur.y]);
   const line = factory.createLineString([
